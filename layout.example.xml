@@ -1,0 +1,31 @@
+<!--
+  - We use XML here because it's the cleanest way to map both object properties and children.
+  -->
+<window>
+  <!-- declares a template; preset element attributes are substituted into values -->
+  <template name="project">
+    <!--
+      - the 'column' tag specifies that children are arranged from top to bottom
+      - the weights indicate that the first pane is half the size of the second (1/3 + 2/3)
+      -->
+    <column weights="0.5 1">
+      <pane directory="${directory}" />
+      <pane directory="${directory}" />
+    </column>
+  </template>
+
+  <tab>
+    <!-- the 'row' tag specifies that children are arranged from left to right -->
+    <row>
+      <column>
+        <pane directory="C:\Windows" />
+      </column>
+      <column>
+        <!-- implementations of the project template above -->
+        <preset name="project" directory="%USERPROFILE%" />
+        <preset name="project" directory="C:" />
+      </column>
+      <preset name="project" directory="%USERPROFILE%" />
+    </row>
+  </tab>
+</window>
