@@ -2,14 +2,12 @@
 
 import argparse
 import collections
-import contextlib
 import copy
 import os
 import pathlib
 import string
 import subprocess
 import xml.etree.ElementTree as ET
-from typing import Iterator, Self
 
 # mslex is shlex but for Windows; this ensures the 'process' string is correctly passed
 import mslex
@@ -45,48 +43,42 @@ def _get_unvenv() -> dict[str, str]:
     return {k: v for k, v in env.items() if v is not None}
 
 
-class ContextChainMap(collections.ChainMap):
-    # chain map that ensures new mappings only available in the same nesting level
-    @contextlib.contextmanager
-    def push_ctx(self) -> Iterator[Self]:
-        yield self.new_child()
+def _walk(element: ET.Element, template_registry: collections.ChainMap) -> Action:
+    child_registry = template_registry.new_child()
 
+    for template in element.findall("template"):
+        name = template.attrib.get("name")
+        child_registry[name] = template
 
-def _walk(element: ET.Element, template_registry: ContextChainMap) -> Action:
-    with template_registry.push_ctx() as reg:
-        for template in element.findall("template"):
-            name = template.attrib.get("name")
-            reg[name] = template
-
-        children = [
-            _walk(child, reg)
-            for child in element
-            if child.tag != "template" and child is not None
-        ]
-        if element.tag == "window":
-            return Window(*children)
-        elif element.tag == "tab":
-            return LayoutTab(*children)
-        elif element.tag in ("row", "column"):
-            weights = None
-            if element.attrib.get("weights"):
-                weights = list(map(float, element.attrib.get("weights").split()))
-            return PaneGroup(
-                LayoutDirection.COLUMN if element.tag == "column" else LayoutDirection.ROW,
-                children,
-                weights=weights,
-            )
-        elif element.tag == "pane":
-            process = None
-            if "process" in element.attrib:
-                process = mslex.split(element.attrib.get("process"))
-            return Pane(starting_directory=element.attrib.get("directory"), process=process)
-        elif element.tag == "preset":
-            preset_type = element.attrib.get("name")
-            if preset_type not in reg:
-                raise ValueError(f"Unknown preset template name '{preset_type}'")
-            return _walk(_process_template(reg[preset_type], element), reg)
-        raise ValueError(f"Unknown tag '{element.tag}'")
+    children = [
+        _walk(child, child_registry)
+        for child in element
+        if child.tag != "template" and child is not None
+    ]
+    if element.tag == "window":
+        return Window(*children)
+    elif element.tag == "tab":
+        return LayoutTab(*children)
+    elif element.tag in ("row", "column"):
+        weights = None
+        if element.attrib.get("weights"):
+            weights = list(map(float, element.attrib.get("weights").split()))
+        return PaneGroup(
+            LayoutDirection.COLUMN if element.tag == "column" else LayoutDirection.ROW,
+            children,
+            weights=weights,
+        )
+    elif element.tag == "pane":
+        process = None
+        if "process" in element.attrib:
+            process = mslex.split(element.attrib.get("process"))
+        return Pane(starting_directory=element.attrib.get("directory"), process=process)
+    elif element.tag == "preset":
+        preset_type = element.attrib.get("name")
+        if preset_type not in child_registry:
+            raise ValueError(f"Unknown preset template name '{preset_type}'")
+        return _walk(_process_template(child_registry[preset_type], element), child_registry)
+    raise ValueError(f"Unknown tag '{element.tag}'")
 
 
 def main() -> None:
@@ -97,5 +89,5 @@ def main() -> None:
     args = parser.parse_args()
 
     root = ET.fromstring(args.file.read_text("utf8"))
-    result = _walk(root, ContextChainMap())
+    result = _walk(root, collections.ChainMap())
     subprocess.run([os.path.expandvars(s) for s in result.command()], env=_get_unvenv())
